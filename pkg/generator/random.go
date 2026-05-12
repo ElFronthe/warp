@@ -30,12 +30,16 @@ import (
 
 // trackingReader wraps rng.Reader to record when Read returns io.EOF.
 type trackingReader struct {
-	*rng.Reader
+	reader   *rng.Reader
 	lastByte atomic.Pointer[time.Time]
 }
 
+func (t *trackingReader) Reader() *rng.Reader {
+	return t.reader
+}
+
 func (t *trackingReader) Read(p []byte) (n int, err error) {
-	n, err = t.Reader.Read(p)
+	n, err = t.reader.Read(p)
 	if err == io.EOF {
 		now := time.Now()
 		t.lastByte.Store(&now)
@@ -44,7 +48,7 @@ func (t *trackingReader) Read(p []byte) (n int, err error) {
 }
 
 func (t *trackingReader) ReadAt(p []byte, off int64) (n int, err error) {
-	n, err = t.Reader.ReadAt(p, off)
+	n, err = t.reader.ReadAt(p, off)
 	if err == io.EOF {
 		now := time.Now()
 		t.lastByte.Store(&now)
@@ -54,6 +58,41 @@ func (t *trackingReader) ReadAt(p []byte, off int64) (n int, err error) {
 
 func (t *trackingReader) LastByte() *time.Time {
 	return t.lastByte.Load()
+}
+
+func (t *trackingReader) Seek(offset int64, whence int) (int64, error) {
+	return t.reader.Seek(offset, whence)
+}
+
+// resetSizeWithSeed resets the reader to a new size while advancing past
+// the internal buffer to force a full reseed. Each call gets completely
+// unique content: new subkeys + fresh buffer data from scrambled blocks.
+func (t *trackingReader) resetSizeWithSeed(size int64) error {
+	// First, reset with brand new subkeys from the global RNG.
+	if err := t.reader.Reset(); err != nil {
+		return err
+	}
+	// Then, advance past the internal buffer (16KB) to ensure the next read
+	// uses different scrambled blocks. Block keys derive from blockN, so
+	// a larger offset yields entirely different content. For small objects
+	// where 128KB exceeds totalSize, fall back to jumping over a few buffers.
+	if _, err := t.reader.Seek(0, io.SeekStart); err != nil {
+		return err
+	}
+	jump := int64(16 * 1024)
+	if size > jump {
+		jump = 128 * 1024
+	}
+	if _, err := t.reader.Seek(jump, io.SeekStart); err != nil {
+		// Size limit reached for small objects.
+		// Subkeys from Reset() above still ensure uniqueness.
+	} else {
+		// Seek back to start, now with data from new scrambled blocks.
+		if _, err := t.reader.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+	}
+	return t.reader.ResetSize(size)
 }
 
 func WithRandomData() RandomOpts {
@@ -135,7 +174,7 @@ func newRandom(o Options) (Source, error) {
 	r := randomSrc{
 		o:      o,
 		rng:    rand.New(rndSrc),
-		source: trackingReader{Reader: input},
+		source: trackingReader{reader: input},
 		obj: Object{
 			Reader:      nil,
 			Name:        "",
@@ -154,7 +193,9 @@ func (r *randomSrc) Object() *Object {
 	r.obj.Size = r.o.getSize(r.rng)
 	r.obj.setName(fmt.Sprintf("%d.%s.rnd", n, string(nBuf[:])))
 
-	r.source.ResetSize(r.obj.Size)
+	if err := r.source.resetSizeWithSeed(r.obj.Size); err != nil {
+		panic(fmt.Sprintf("generator: resetSizeWithSeed failed: %v", err))
+	}
 	r.source.lastByte.Store(nil)
 	r.obj.Reader = &r.source
 	return &r.obj

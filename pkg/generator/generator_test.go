@@ -23,6 +23,78 @@ import (
 	"testing"
 )
 
+func TestEachObjectUnique(t *testing.T) {
+	src, err := New(WithSize(64<<10), WithRandomData().Apply())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	seen := make(map[string]bool, 20)
+	for i := 0; i < 20; i++ {
+		obj := src.Object()
+		b, err := io.ReadAll(obj.Reader)
+		if err != nil {
+			t.Fatalf("Object(%d) ReadAll error: %v", i, err)
+		}
+		if len(b) != 64<<10 {
+			t.Fatalf("Object(%d) size = %d, want %d", i, len(b), 64<<10)
+		}
+		h := string(b[:64])
+		if seen[h] {
+			t.Errorf("Object(%d) content duplicates a previous object", i)
+		}
+		seen[h] = true
+	}
+}
+
+func TestEachObjectUniqueRandomSize(t *testing.T) {
+	src, err := New(WithMinMaxSize(128, 64<<10), WithRandomSize(true), WithRandomData().Apply())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	seen := make(map[string]bool, 20)
+	for i := 0; i < 20; i++ {
+		obj := src.Object()
+		b, err := io.ReadAll(obj.Reader)
+		if err != nil {
+			t.Fatalf("Object(%d) ReadAll error: %v", i, err)
+		}
+		if len(b) < 128 || len(b) > 64<<10 {
+			t.Fatalf("Object(%d) size = %d out of range [%d, %d]", i, len(b), 128, 64<<10)
+		}
+		h := string(b)
+		if seen[h] {
+			t.Errorf("Object(%d) content duplicates a previous object", i)
+		}
+		seen[h] = true
+	}
+}
+
+func TestEachSmallObjectUnique(t *testing.T) {
+	src, err := New(WithSize(256), WithRandomData().Apply())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	seen := make(map[string]bool, 20)
+	for i := 0; i < 20; i++ {
+		obj := src.Object()
+		b, err := io.ReadAll(obj.Reader)
+		if err != nil {
+			t.Fatalf("Object(%d) ReadAll error: %v", i, err)
+		}
+		if len(b) != 256 {
+			t.Fatalf("Object(%d) size = %d, want 256", i, len(b))
+		}
+		h := string(b)
+		if seen[h] {
+			t.Errorf("Object(%d) content duplicates a previous object", i)
+		}
+		seen[h] = true
+	}
+}
+
 func TestNew(t *testing.T) {
 	type args struct {
 		opts []Option
