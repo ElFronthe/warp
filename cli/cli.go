@@ -93,6 +93,7 @@ func init() {
 		deleteCmd,
 		listCmd,
 		statCmd,
+		statBucketCmd,
 		versionedCmd,
 		retentionCmd,
 		multipartCmd,
