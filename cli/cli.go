@@ -95,6 +95,7 @@ func init() {
 		statCmd,
 		statBucketCmd,
 		versionedCmd,
+		atomicCmd,
 		retentionCmd,
 		multipartCmd,
 		multipartPutCmd,
