@@ -275,6 +275,16 @@ so clients don't accidentally delete each others data on startup.
 
 By default warp uploads random data.
 
+### Identical Content
+
+Adding `--obj.identical` will make warp upload the same content for every object.
+Object names remain unique, so objects are still separate keys with byte-identical payloads.
+
+This can be used to test storage-side deduplication or compression.
+
+The parameter requires a fixed `--obj.size` and cannot be combined with
+`--obj.randsize` or size histograms, since objects of varying sizes cannot be identical.
+
 ### Object Size
 
 #### Fixed File Size

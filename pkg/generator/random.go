@@ -153,6 +153,11 @@ type randomSrc struct {
 	counter atomic.Uint64
 }
 
+// fixedContentSeed pins the rng.Reader entropy when identical content is
+// requested and no explicit seed was set, so that every source -- one per
+// worker, and one per client in distributed runs -- streams the same bytes.
+const fixedContentSeed = 0x77617270
+
 func newRandom(o Options) (Source, error) {
 	rndSrc := rand.NewSource(int64(rand.Uint64()))
 	if o.random.seed != nil {
@@ -167,7 +172,11 @@ func newRandom(o Options) (Source, error) {
 		return nil, fmt.Errorf("size must be >= 0, got %d", size)
 	}
 
-	input, err := rng.NewReader(rng.WithRNG(rand.New(rndSrc)), rng.WithSize(o.totalSize))
+	readerSrc := rndSrc
+	if o.fixedContent && o.random.seed == nil {
+		readerSrc = rand.NewSource(fixedContentSeed)
+	}
+	input, err := rng.NewReader(rng.WithRNG(rand.New(readerSrc)), rng.WithSize(o.totalSize))
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +202,14 @@ func (r *randomSrc) Object() *Object {
 	r.obj.Size = r.o.getSize(r.rng)
 	r.obj.setName(fmt.Sprintf("%d.%s.rnd", n, string(nBuf[:])))
 
-	if err := r.source.resetSizeWithSeed(r.obj.Size); err != nil {
+	if r.o.fixedContent {
+		// Identical content: rewind without reseeding. The stream depends
+		// only on the seed drawn at creation and the offset, so every
+		// object -- on every source -- returns the same bytes.
+		if _, err := r.source.Seek(0, io.SeekStart); err != nil {
+			panic(fmt.Sprintf("generator: rewind failed: %v", err))
+		}
+	} else if err := r.source.resetSizeWithSeed(r.obj.Size); err != nil {
 		panic(fmt.Sprintf("generator: resetSizeWithSeed failed: %v", err))
 	}
 	r.source.lastByte.Store(nil)
@@ -202,6 +218,9 @@ func (r *randomSrc) Object() *Object {
 }
 
 func (r *randomSrc) String() string {
+	if r.o.fixedContent {
+		return fmt.Sprintf("Random data; fixed content, %d bytes total", r.o.totalSize)
+	}
 	if r.o.randSize {
 		return fmt.Sprintf("Random data; random size up to %d bytes", r.o.totalSize)
 	}

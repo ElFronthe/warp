@@ -41,6 +41,10 @@ var genFlags = []cli.Flag{
 		Name:  "obj.randsize",
 		Usage: "Randomize size of objects so they will be up to the specified size",
 	},
+	cli.BoolFlag{
+		Name:  "obj.identical",
+		Usage: "Give every object identical content; object names stay unique. Useful for testing storage-side deduplication/compression. Requires a fixed --obj.size, rejects --obj.randsize and size histograms.",
+	},
 }
 
 // newGenSource returns a new generator
@@ -100,6 +104,11 @@ func genOptions(ctx *cli.Context, sizeField string) []generator.Option {
 		}
 
 		opts = append([]generator.Option{g.Apply()}, append(opts, generator.WithRandomSize(ctx.Bool("obj.randsize")))...)
+	}
+	// Applied last so the option sees whether random sizes or a size
+	// distribution ended up configured, and rejects the combination.
+	if ctx.Bool("obj.identical") {
+		opts = append(opts, generator.WithFixedContent(true))
 	}
 	return opts
 }

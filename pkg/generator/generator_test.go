@@ -18,10 +18,87 @@
 package generator
 
 import (
+	"bytes"
 	"io"
 	"math/rand"
 	"testing"
 )
+
+func TestFixedContentIdentical(t *testing.T) {
+	srcFn, err := NewFn(WithRandomData().Apply(), WithSize(64<<10), WithFixedContent(true))
+	if err != nil {
+		t.Fatalf("NewFn() error = %v", err)
+	}
+	a, b := srcFn(), srcFn()
+
+	var want []byte
+	for i := 0; i < 10; i++ {
+		obj := a.Object()
+		got, err := io.ReadAll(obj.Reader)
+		if err != nil {
+			t.Fatalf("Object(%d) ReadAll error = %v", i, err)
+		}
+		if len(got) != 64<<10 {
+			t.Fatalf("Object(%d) size = %d, want %d", i, len(got), 64<<10)
+		}
+		if want == nil {
+			want = got
+			continue
+		}
+		if !bytes.Equal(want, got) {
+			t.Fatalf("Object(%d) content differs from the first object", i)
+		}
+	}
+
+	// A second source, as handed to another worker, must stream the same bytes.
+	obj := b.Object()
+	got, err := io.ReadAll(obj.Reader)
+	if err != nil {
+		t.Fatalf("second source ReadAll error = %v", err)
+	}
+	if !bytes.Equal(want, got) {
+		t.Fatal("second source content differs from the first source")
+	}
+}
+
+func TestFixedContentUniqueNames(t *testing.T) {
+	src, err := New(WithRandomData().Apply(), WithSize(1024), WithFixedContent(true))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	seen := make(map[string]bool, 20)
+	for i := 0; i < 20; i++ {
+		obj := src.Object()
+		if seen[obj.Name] {
+			t.Errorf("Object(%d) name %q duplicates a previous object", i, obj.Name)
+		}
+		seen[obj.Name] = true
+	}
+}
+
+func TestFixedContentRejectsVaryingSizes(t *testing.T) {
+	tests := []struct {
+		name string
+		opts []Option
+	}{
+		{
+			name: "random size",
+			opts: []Option{WithRandomData().Apply(), WithSize(64 << 10), WithRandomSize(true), WithFixedContent(true)},
+		},
+		{
+			name: "size histogram",
+			opts: []Option{WithRandomData().Apply(), WithSizeHistograms("1024:1,2048:1"), WithFixedContent(true)},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := New(tt.opts...); err == nil {
+				t.Fatal("expected error combining fixed content with varying sizes")
+			}
+		})
+	}
+}
 
 func TestEachObjectUnique(t *testing.T) {
 	src, err := New(WithSize(64<<10), WithRandomData().Apply())

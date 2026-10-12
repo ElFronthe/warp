@@ -36,6 +36,9 @@ type Options struct {
 	randomPrefix int
 	randSize     bool
 
+	// Makes every source return the same content for every object.
+	fixedContent bool
+
 	// Activates the use of a distribution of sizes
 	flagSizesDistribution bool
 	sizesDistribution     hist.Int64Distribution
@@ -136,6 +139,25 @@ func WithRandomSize(b bool) Option {
 			return errors.New("WithRandomSize: Random sized objects should be at least 256 bytes")
 		}
 		o.randSize = b
+		return nil
+	}
+}
+
+// WithFixedContent makes every generated object have identical content, while
+// object names stay unique. Apply it after the size options: it rejects random
+// sizes and size histograms, since objects of varying size cannot be identical.
+func WithFixedContent(b bool) Option {
+	return func(o *Options) error {
+		if !b {
+			return nil
+		}
+		if o.randSize {
+			return errors.New("WithFixedContent: requires a fixed object size, cannot combine with random sizes")
+		}
+		if o.flagSizesDistribution {
+			return errors.New("WithFixedContent: requires a fixed object size, cannot combine with size distributions")
+		}
+		o.fixedContent = true
 		return nil
 	}
 }
